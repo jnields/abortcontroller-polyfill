@@ -11,6 +11,7 @@ import stringToArrayBuffer from 'string-to-arraybuffer';
 import URLSearchParams_Polyfill from 'url-search-params';
 import { URL } from 'whatwg-url';
 
+const { AbortController } = require('abortcontroller-polyfill/dist/cjs-ponyfill');
 const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
@@ -778,6 +779,59 @@ describe('node-fetch', () => {
 			.on('exit', () => {
 				done();
 			});
+	});
+
+	it('should support request cancellation with signal', function () {
+		this.timeout(500);
+		const url = `${base}timeout`;
+		const controller = new AbortController();
+		const opts = {
+			signal: controller.signal
+		};
+		const fetched = fetch(url, opts);
+		setTimeout(() => controller.abort(), 100);
+		return expect(fetched).to.eventually.be.rejected
+			.and.be.an.instanceOf(Error)
+			.and.include({
+				type: 'aborted',
+				name: 'AbortError',
+			});
+	});
+
+	it('should clear internal timeout when request is cancelled with an AbortSignal', function(done) {
+		this.timeout(2000);
+		const script = `
+			const { AbortController } = require('abortcontroller-polyfill/dist/cjs-ponyfill');
+			const controller = new AbortController();
+			require('./')(
+				'${base}timeout',
+				{ signal: controller.signal, timeout: 10000 }
+			).catch(err => {
+				if (err.name !== 'AbortError') process.exit(1);
+			});
+			setTimeout(() => controller.abort(), 100);
+		`
+		spawn('node', ['-e', script])
+			.on('exit', (code) => {
+				expect(code).to.equal(0);
+				done();
+			});
+	});
+
+	it('should remove internal AbortSignal event listener when timeout is reached', function () {
+		const controller = new AbortController();
+		const promise = fetch(
+			`${base}timeout`,
+			{ signal: controller.signal, timeout: 100 }
+		);
+		return Promise.all([
+			expect(promise).to.eventually.be.rejected
+				.and.be.an.instanceof(FetchError)
+				.and.have.property('type', 'request-timeout'),
+			promise.catch(() => {
+				expect(controller.signal.listeners.abort.length).to.equal(0);
+			})
+		]);
 	});
 
 	it('should set default User-Agent', function () {

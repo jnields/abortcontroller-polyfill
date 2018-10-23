@@ -18,6 +18,7 @@ import Response from './response';
 import Headers, { createHeadersLenient } from './headers';
 import Request, { getNodeRequestOptions } from './request';
 import FetchError from './fetch-error';
+import AbortError from './abort-error';
 
 /**
  * Fetch function
@@ -47,9 +48,20 @@ export default function fetch(url, opts) {
 		const req = send(options);
 		let reqTimeout;
 
+		const { signal } = request;
+		if (signal) {
+			signal.addEventListener('abort', abortRequest);
+		}
+
 		function finalize() {
 			req.abort();
+			if (signal) signal.removeEventListener('abort', abortRequest);
 			clearTimeout(reqTimeout);
+		}
+
+		function abortRequest() {
+			reject(new AbortError('The user aborted a request.'));
+			finalize();
 		}
 
 		if (request.timeout) {
